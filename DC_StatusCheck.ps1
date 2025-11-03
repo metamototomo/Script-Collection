@@ -1,8 +1,8 @@
 <# ======================================================================================================
-.SYNOPSIS
+SYNOPSIS:
 Lightweight PowerShell script to monitor the health and connectivity of Active Directory Domain Controllers (DCs).
 
-.DESCRIPTION
+DESCRIPTION:
 This script is designed to help track intermittent login or authentication issues by checking DC status from client machines.
 
 WHAT IT DOES:
@@ -23,7 +23,7 @@ PERFORMANCE IMPACT:
 - Very low: one LDAP bind per run, optional ping.
 - Safe to run every 15 minutes from a few client machines (e.g., 3) without affecting AD servers.
 
-.EXAMPLE
+EXAMPLE:
 Run the script manually or via Windows Task Scheduler to log DC health every 15 minutes:
 
     .\DC_StatusCheck.ps1 -DomainFQDN "d11-ads.prm01.gcs.cloud" -EnablePing
