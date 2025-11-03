@@ -1,98 +1,84 @@
-# ==================================================================
-# DC_StatusCheck.ps1
-# Lightweight tool to check DC connectivity and authentication status
-# Author: Nobu
-# ==================================================================
+# ===============================
+# AD Secure Channel and LDAP Check
+# ===============================
 
-# --- Configuration ---
-$DomainFQDN = "d11-ads.prm01.gcs.cloud"       # Your domain FQDN
-$LogFolder  = "C:\Logs"                       # Change if needed
-$LogFile    = Join-Path $LogFolder "DC_Status_Log.csv"
+# Configuration
+$DomainFQDN = "d11-ads.prm01.gcs.cloud"
+$LogFolder = "C:\GCS_Logs"
+$UserName = "$env:USERDOMAIN\$env:USERNAME"
+$ComputerName = $env:COMPUTERNAME
+$TimeStamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
 
-# --- Ensure log folder exists ---
-if (!(Test-Path $LogFolder)) {
-    try {
-        New-Item -ItemType Directory -Path $LogFolder -Force | Out-Null
-    } catch {
-        Write-Output "Failed to create log folder: $LogFolder"
-        exit 1
-    }
+# --- Create log folder if not exists ---
+if (-not (Test-Path $LogFolder)) {
+    New-Item -Path $LogFolder -ItemType Directory | Out-Null
 }
 
-# --- Prepare environment ---
-$Timestamp    = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$ComputerName = $env:COMPUTERNAME
-$UserName     = "$env:USERDOMAIN\$env:USERNAME"
-
-# --- Step 1: Resolve Domain FQDN to IP ---
+# --- Step 1: Discover Domain Controller ---
 try {
-    $dnsResult = Resolve-DnsName $DomainFQDN -ErrorAction Stop
+    $DCInfo = nltest /dsgetdc:$DomainFQDN
+    $DC_Used = ($DCInfo | Select-String "DC:" | ForEach-Object { $_.ToString().Split(":")[1].Trim() })
+} catch {
+    $DC_Used = "Unknown"
+}
+
+# --- Step 2: Resolve actual DC name to IP ---
+try {
+    $dcHost = ($DC_Used -replace '\\','').Trim()
+    $dnsResult = Resolve-DnsName $dcHost -ErrorAction Stop
     $DC_IP = ($dnsResult | Where-Object {$_.Type -eq 'A'}).IPAddress
 } catch {
-    $DC_IP = "DNS Resolution Failed"
+    $DC_IP = "Resolution failed for $dcHost"
 }
 
-# --- Step 2: Ping test ---
-if ($DC_IP -and $DC_IP -ne "DNS Resolution Failed") {
-    $ping = Test-Connection -ComputerName $DC_IP -Count 1 -ErrorAction SilentlyContinue
-    $PingTime = if ($ping) { $ping.ResponseTime } else { "No reply" }
-} else {
-    $PingTime = "N/A"
-}
-
-# --- Step 3: Determine actual DC used by this machine ---
+# --- Step 3: Ping DC ---
 try {
-    $dcInfo = nltest /dsgetdc:$($env:USERDOMAIN)
-    $DC_Used = ($dcInfo | Select-String "DC:").ToString().Split(":")[1].Trim()
+    $Ping = Test-Connection -ComputerName $dcHost -Count 1 -ErrorAction Stop
+    $Ping_ResponseMS = [math]::Round($Ping.ResponseTime, 2)
 } catch {
-    $DC_Used = "Failed to determine DC"
+    $Ping_ResponseMS = "Unreachable"
 }
 
-# --- Step 4: LDAP (ADSI) connectivity test ---
+# --- Step 4: Test LDAP Connection ---
 try {
-    $ads = [ADSI]"LDAP://$env:USERDOMAIN"
-    $ads.psbase.Name | Out-Null
+    $LDAP_Test = [ADSI]"LDAP://$DomainFQDN"
     $LDAP_Status = "Success"
-    $LDAP_Error  = ""
 } catch {
     $LDAP_Status = "Failed"
-    $LDAP_Error  = $_.Exception.Message
 }
 
-# --- Step 5: Secure Channel test ---
+# --- Step 5: Test Secure Channel ---
 try {
-    $SecureChannel_OK = Test-ComputerSecureChannel -ErrorAction Stop
-    $SecureChannel_Status = if ($SecureChannel_OK) { "Healthy" } else { "Broken" }
+    if (Test-ComputerSecureChannel -Verbose:$false) {
+        $SecureChannel_Status = "Healthy"
+    } else {
+        $SecureChannel_Status = "Broken"
+    }
 } catch {
     $SecureChannel_Status = "Error"
 }
 
-# --- Step 6: Build result record ---
-$result = [PSCustomObject]@{
-    Timestamp            = $Timestamp
-    ComputerName         = $ComputerName
-    UserName             = $UserName
-    DomainFQDN           = $DomainFQDN
-    DC_Used              = $DC_Used
-    DC_IP                = $DC_IP
-    Ping_ResponseMS      = $PingTime
-    LDAP_Status          = $LDAP_Status
-    SecureChannel_Status = $SecureChannel_Status
-    Error_Message        = $LDAP_Error
+# --- Step 6: Build log data ---
+$LogData = [PSCustomObject]@{
+    Timestamp             = $TimeStamp
+    ComputerName          = $ComputerName
+    UserName              = $UserName
+    DomainFQDN            = $DomainFQDN
+    DC_Used               = $DC_Used
+    DC_IP                 = $DC_IP
+    Ping_ResponseMS       = $Ping_ResponseMS
+    LDAP_Status           = $LDAP_Status
+    SecureChannel_Status  = $SecureChannel_Status
+    Error_Message         = ""
 }
 
-# --- Step 7: Save result ---
-try {
-    if (!(Test-Path $LogFile)) {
-        $result | Export-Csv -Path $LogFile -NoTypeInformation
-    } else {
-        $result | Export-Csv -Path $LogFile -Append -NoTypeInformation
-    }
-} catch {
-    Write-Output "Failed to write log file: $LogFile"
+# --- Step 7: Export result to CSV ---
+$LogFile = Join-Path $LogFolder "$ComputerName-ADCheck.csv"
+
+if (-not (Test-Path $LogFile)) {
+    $LogData | Export-Csv -Path $LogFile -NoTypeInformation
+} else {
+    $LogData | Export-Csv -Path $LogFile -Append -NoTypeInformation
 }
 
-# --- Step 8: Optional console output (for testing) ---
-Write-Output ("[{0}] {1} -> DC:{2} | LDAP:{3} | Channel:{4} | Ping:{5}ms" -f `
-    $Timestamp, $ComputerName, $DC_Used, $LDAP_Status, $SecureChannel_Status, $PingTime)
-
+Write-Host "[$TimeStamp] AD connectivity check completed. Log saved to $LogFile" -ForegroundColor Cyan
