@@ -1,34 +1,3 @@
-<# ======================================================================================================
-SYNOPSIS:
-Lightweight PowerShell script to monitor the health and connectivity of Active Directory Domain Controllers (DCs).
-
-DESCRIPTION:
-This script is designed to help track intermittent login or authentication issues by checking DC status from client machines.
-
-WHAT IT DOES:
-- Checks assigned DC: Verifies which DC the client is attempting to use.
-- Resolves DC IP: Attempts to resolve the DC hostname to its IP address.
-- Optional ping test: Measures response time to the DC (configurable).
-- LDAP connectivity: Tests if the client can successfully bind to a DC via LDAP.
-- Secure Channel status: Verifies if the client’s secure channel to AD is healthy.
-- Error logging: Captures any issues in a clean, single-line format.
-- CSV output: Saves results locally for historical tracking and troubleshooting.
-
-KEY BENEFITS:
-- Minimal privilege required; no installation needed.
-- Runs automatically without affecting DC performance.
-- Provides clear evidence for troubleshooting intermittent login issues.
-
-PERFORMANCE IMPACT:
-- Very low: one LDAP bind per run, optional ping.
-- Safe to run every 15 minutes from a few client machines (e.g., 3) without affecting AD servers.
-
-EXAMPLE:
-Run the script manually or via Windows Task Scheduler to log DC health every 15 minutes:
-
-    .\DC_StatusCheck.ps1 -DomainFQDN "d11-ads.prm01.gcs.cloud" -EnablePing
-====================================================================================================== #>
-
 param(
     [string]$LogFolder = "C:\GCS_Logs",
     [bool]$EnablePing = $true
@@ -174,4 +143,3 @@ else { Write-Host "  Appended to existing CSV: $CSV_File" }
 
 Write-Host ""
 Write-Host "[ $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') ] AD connectivity check completed."
-
